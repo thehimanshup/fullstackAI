@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+dev.db
+dev.db-journal
+*.log
+walkthrough.md
+task.md
+implementation_plan.md
+Study material
+
