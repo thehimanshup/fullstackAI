@@ -6,4 +6,5 @@ const globalForPrisma = globalThis as unknown as {
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient()
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+// Always cache in globalThis so warm serverless invocations reuse the same client
+globalForPrisma.prisma = prisma
