@@ -5,17 +5,21 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Mic, Send, Bot, User, Sparkles, Volume2, VolumeX } from "lucide-react"
 import { chatWithAI } from "./actions"
-import { useSession } from "next-auth/react"
 import { cn } from "@/lib/utils"
 import ReactMarkdown from "react-markdown"
 
 const LANG_MAP: Record<string, string> = {
-    "English": "en-IN",
-    "Hindi": "hi-IN",
-    "Marathi": "mr-IN",
-    "Tamil": "ta-IN",
-    "Telugu": "te-IN",
-    "Bengali": "bn-IN"
+    "English":    "en-IN",
+    "Hindi":      "hi-IN",
+    "Marathi":    "mr-IN",
+    "Tamil":      "ta-IN",
+    "Telugu":     "te-IN",
+    "Bengali":    "bn-IN",
+    "Gujarati":   "gu-IN",
+    "Kannada":    "kn-IN",
+    "Malayalam":  "ml-IN",
+    "Odia":       "od-IN",
+    "Punjabi":    "pa-IN",
 }
 
 interface Message {
@@ -24,9 +28,19 @@ interface Message {
 }
 
 export default function TutorPage() {
-    const { data: session } = useSession()
-    const userLanguage = (session?.user as any)?.language || "English"
+    // Fetch language fresh from DB so Settings changes take effect immediately
+    // (JWT tokens cache the language and only update on re-login)
+    const [userLanguage, setUserLanguage] = useState("English")
     const speechLangCode = LANG_MAP[userLanguage] || "en-IN"
+
+    useEffect(() => {
+        fetch("/api/auth/profile")
+            .then(r => r.ok ? r.json() : null)
+            .then(profile => {
+                if (profile?.language) setUserLanguage(profile.language)
+            })
+            .catch(() => {}) // silently fall back to "English"
+    }, [])
 
     const [messages, setMessages] = useState<Message[]>([
         {

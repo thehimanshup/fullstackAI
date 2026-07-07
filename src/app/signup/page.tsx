@@ -181,11 +181,16 @@ export default function SignupPage() {
                                 className="w-full p-3 rounded-lg bg-black/50 border border-white/10 text-white focus:outline-none focus:border-purple-500 transition-colors"
                             >
                                 <option value="English">English</option>
-                                <option value="Hindi">Hindi</option>
-                                <option value="Marathi">Marathi</option>
-                                <option value="Tamil">Tamil</option>
-                                <option value="Telugu">Telugu</option>
-                                <option value="Bengali">Bengali</option>
+                                <option value="Hindi">Hindi (हिंदी)</option>
+                                <option value="Bengali">Bengali (বাংলা)</option>
+                                <option value="Gujarati">Gujarati (ગુજરાતી)</option>
+                                <option value="Kannada">Kannada (ಕನ್ನಡ)</option>
+                                <option value="Malayalam">Malayalam (മലയാളം)</option>
+                                <option value="Marathi">Marathi (मराठी)</option>
+                                <option value="Odia">Odia (ଓଡ଼ିଆ)</option>
+                                <option value="Punjabi">Punjabi (ਪੰਜਾਬੀ)</option>
+                                <option value="Tamil">Tamil (தமிழ்)</option>
+                                <option value="Telugu">Telugu (తెలుగు)</option>
                             </select>
                         </div>
 
