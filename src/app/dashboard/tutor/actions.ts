@@ -104,8 +104,13 @@ export async function chatWithAI(
                         chapter: evaluation.chapter,
                         isCorrect: evaluation.isCorrect
                     }
-                    // Log to DB in the background without awaiting it to keep the chat snappy
-                    logLearningEventToDB(session.user.id, evaluation.subject, evaluation.chapter, evaluation.isCorrect).catch(e => console.error("DB Log Error:", e))
+                    // Await the DB write — fire-and-forget fails on Vercel because serverless
+                    // functions are terminated as soon as the response is sent, killing unawaited promises
+                    try {
+                        await logLearningEventToDB(session.user.id, evaluation.subject, evaluation.chapter, evaluation.isCorrect)
+                    } catch (e) {
+                        console.error("DB Log Error:", e)
+                    }
                 }
             } catch (err) {
                 console.error("Failed to parse evaluation JSON:", err, jsonPart)
