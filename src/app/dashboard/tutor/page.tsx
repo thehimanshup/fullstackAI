@@ -103,9 +103,28 @@ export default function TutorPage() {
             speak(responseText)
 
             if (learningEvent) {
-                setToastMessage(`🧠 Learning logged: ${learningEvent.subject} - ${learningEvent.chapter} (${learningEvent.isCorrect ? 'Correct' : 'Needs Practice'})`)
-                setTimeout(() => setToastMessage(""), 4000)
-            }
+                    // Call the dedicated log-attempt endpoint from the client.
+                    // This is decoupled from the Gemini call so it never hits
+                    // Vercel's 10s function timeout regardless of AI response time.
+                    fetch("/api/tutor/log-attempt", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(learningEvent),
+                    })
+                        .then(async (res) => {
+                            if (res.ok) {
+                                setToastMessage(`🧠 Logged: ${learningEvent!.subject} · ${learningEvent!.chapter} (${learningEvent!.isCorrect ? "✓ Correct" : "✗ Needs Practice"})`)
+                            } else {
+                                const err = await res.json().catch(() => ({}))
+                                console.error("log-attempt failed:", err)
+                                setToastMessage(`⚠️ Session noted but analytics sync failed`)
+                            }
+                            setTimeout(() => setToastMessage(""), 4000)
+                        })
+                        .catch((e) => {
+                            console.error("log-attempt network error:", e)
+                        })
+                }
         } catch (error) {
             console.error("Error:", error)
             setMessages(prev => [...prev, {

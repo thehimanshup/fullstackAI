@@ -46,41 +46,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     ],
     callbacks: {
         async jwt({ token, user }) {
-            // On first sign-in, seed the token with user data
+            // At first sign-in, bake user fields into the token
             if (user) {
                 const u = user as any
-                token.id = u.id
-                token.role = u.role
+                // Explicitly set token.id from the DB user object so it is
+                // always the real CUID, never undefined
+                token.id       = u.id
+                token.role     = u.role
                 token.language = u.language
             }
-
-            // On every subsequent request, refresh user fields from DB so
-            // language/role changes in Settings are reflected immediately
-            // without requiring a re-login.
-            if (token.sub) {
-                try {
-                    const dbUser = await prisma.user.findUnique({
-                        where: { id: token.sub },
-                        select: { id: true, role: true, language: true },
-                    })
-                    if (dbUser) {
-                        token.id = dbUser.id
-                        token.role = dbUser.role
-                        token.language = dbUser.language
-                    }
-                } catch {
-                    // DB temporarily unavailable — keep existing token values
-                }
-            }
-
             return token
         },
         async session({ session, token }) {
-            if (session.user && token.sub) {
-                // Prefer token.id (explicitly set above) over token.sub
-                session.user.id = (token.id as string) || token.sub
+            if (session.user) {
+                // Prefer the explicit token.id we set; token.sub is NextAuth's
+                // auto-set field and is identical but this makes it unambiguous
+                session.user.id = (token.id as string) ?? token.sub ?? ""
                 // @ts-ignore
-                session.user.role = token.role
+                session.user.role     = token.role
                 // @ts-ignore
                 session.user.language = token.language
             }

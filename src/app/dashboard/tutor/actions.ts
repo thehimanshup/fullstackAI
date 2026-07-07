@@ -1,8 +1,6 @@
 "use server"
 
 import { GoogleGenerativeAI } from "@google/generative-ai"
-import { auth } from "@/auth"
-import { prisma } from "@/lib/db"
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
@@ -30,8 +28,6 @@ export async function chatWithAI(
     userLanguage: string = "English"
 ) {
     try {
-        const session = await auth()
-
         const model = genAI.getGenerativeModel({
             model: "gemini-2.5-flash",
             systemInstruction: `You are an expert Socratic AI Mentor for Indian students. 
@@ -50,21 +46,22 @@ export async function chatWithAI(
             Be encouraging, patient, and use formatting (Markdown) to make text readable.
             
             EVALUATION RULE: At the very end of your response, you MUST append a structured JSON block evaluated based on the user's latest input. 
-            This block will be parsed out programmatically and must follow this EXACT format at the bottom of your output:
+            This block will be parsed out programmatically and must follow this EXACT format at the bottom of your output with NO extra text after it:
             
             ---EVALUATION---
             {
-              "isLearningEvent": boolean,
-              "subject": "string",
-              "chapter": "string",
-              "isCorrect": boolean
+              "isLearningEvent": true,
+              "subject": "Physics",
+              "chapter": "Newton Laws",
+              "isCorrect": true
             }
             
+            IMPORTANT: Always output the ---EVALUATION--- block. Never skip it.
             Guidelines for the JSON block:
-            1. If the student is just starting, asking questions, or chat is introductory, set "isLearningEvent" to false.
-            2. If the student answers a question you asked or explains a concept correctly, set "isLearningEvent" to true, and "isCorrect" to true.
-            3. If the student answers a question incorrectly or makes a conceptual error, set "isLearningEvent" to true, and "isCorrect" to false.
-            4. Identify the subject (e.g. Physics, Chemistry, Math, History, Biology, etc.) and chapter/topic (e.g. Thermodynamics, Cell Division, Integration, etc.). Keep subject and chapter names concise.`
+            1. If the student is just starting or chat is introductory (first message), set "isLearningEvent" to false.
+            2. If the student answers a question you asked or explains a concept, set "isLearningEvent" to true.
+            3. Set "isCorrect" to true if correct, false if incorrect or partially correct.
+            4. "subject" and "chapter" must be concise English strings even if responding in another language.`
         })
 
         // Gemini requires history to start with a 'user' role
@@ -76,100 +73,49 @@ export async function chatWithAI(
             chatHistory = []
         }
 
-        const chat = model.startChat({
-            history: chatHistory,
-        })
+        const chat = model.startChat({ history: chatHistory })
 
-        // 1. Get response from Socratic Mentor (containing response text & evaluation JSON)
+        // Get AI response (text + evaluation JSON appended at the end)
         const rawText = await callWithRetry(async () => {
             const result = await chat.sendMessage(message)
             return result.response.text()
         })
 
         let responseText = rawText
-        let learningEvent = null
+        let learningEvent: { subject: string; chapter: string; isCorrect: boolean } | null = null
 
-        // 2. Parse the evaluation block
+        // Parse the ---EVALUATION--- block that Gemini appends
         const marker = "---EVALUATION---"
         const markerIndex = rawText.lastIndexOf(marker)
         if (markerIndex !== -1) {
             responseText = rawText.substring(0, markerIndex).trim()
             const jsonPart = rawText.substring(markerIndex + marker.length).trim()
             try {
-                const cleanedJson = jsonPart.replace(/```json\n?/gi, "").replace(/```\n?/gi, "").trim()
+                const cleanedJson = jsonPart
+                    .replace(/```json\n?/gi, "")
+                    .replace(/```\n?/gi, "")
+                    .trim()
                 const evaluation = JSON.parse(cleanedJson)
-                if (evaluation.isLearningEvent && evaluation.subject && evaluation.chapter && session?.user?.id) {
+                if (evaluation.isLearningEvent && evaluation.subject && evaluation.chapter) {
                     learningEvent = {
-                        subject: evaluation.subject,
-                        chapter: evaluation.chapter,
-                        isCorrect: evaluation.isCorrect
-                    }
-                    // Await the DB write — fire-and-forget fails on Vercel because serverless
-                    // functions are terminated as soon as the response is sent, killing unawaited promises
-                    try {
-                        await logLearningEventToDB(session.user.id, evaluation.subject, evaluation.chapter, evaluation.isCorrect)
-                    } catch (e) {
-                        console.error("DB Log Error:", e)
+                        subject: String(evaluation.subject).trim(),
+                        chapter: String(evaluation.chapter).trim(),
+                        isCorrect: Boolean(evaluation.isCorrect),
                     }
                 }
             } catch (err) {
-                console.error("Failed to parse evaluation JSON:", err, jsonPart)
+                console.error("Failed to parse evaluation JSON:", err, "\nRaw JSON part:", jsonPart)
             }
+        } else {
+            console.warn("No ---EVALUATION--- block found in Gemini response")
         }
 
+        // NOTE: DB write is intentionally NOT done here.
+        // The client calls POST /api/tutor/log-attempt after receiving this response.
+        // This keeps the server action fast and avoids Vercel's 10s timeout.
         return { responseText, learningEvent }
     } catch (error) {
         console.error("Gemini API Error:", error)
         throw new Error("Failed to get response from AI Tutor")
     }
-}
-
-// Background worker function to log the event to DB
-async function logLearningEventToDB(userId: string, subjectName: string, chapterTitle: string, isCorrect: boolean) {
-    // 1. Find or create Subject
-    let subject = await prisma.subject.findFirst({
-        where: { name: subjectName }
-    })
-    if (!subject) {
-        subject = await prisma.subject.create({
-            data: { name: subjectName }
-        })
-    }
-
-    // 2. Find or create Chapter
-    let chapter = await prisma.chapter.findFirst({
-        where: { title: chapterTitle, subjectId: subject.id }
-    })
-    if (!chapter) {
-        chapter = await prisma.chapter.create({
-            data: { title: chapterTitle, subjectId: subject.id }
-        })
-    }
-
-    // 3. Find or create a placeholder Question for Socratic Tutor attempts
-    const placeholderContent = "__SOCRATIC_TUTOR_INTERACTION__"
-    let question = await prisma.question.findFirst({
-        where: { content: placeholderContent, chapterId: chapter.id }
-    })
-    if (!question) {
-        question = await prisma.question.create({
-            data: {
-                content: placeholderContent,
-                type: "AI_TUTOR",
-                correctAnswer: "N/A",
-                difficulty: "MEDIUM",
-                chapterId: chapter.id
-            }
-        })
-    }
-
-    // 4. Create the Attempt
-    await prisma.attempt.create({
-        data: {
-            userId,
-            questionId: question.id,
-            isCorrect,
-            timeTaken: 15, // standard arbitrary time for chat response
-        }
-    })
 }
